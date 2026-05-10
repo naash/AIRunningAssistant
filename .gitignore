@@ -1,0 +1,8 @@
+.env
+google-sheets-credentials.json
+credentials.json
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
