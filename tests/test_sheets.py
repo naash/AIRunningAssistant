@@ -2,23 +2,38 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock, patch
 from app.sheets.client import SheetsClient
+from app.config import settings
 
-SPREADSHEET_ID = "test_spreadsheet_id"
+SPREADSHEET_ID = settings.spreadsheet_id
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 HEADER = ["Day", "Date", "Session Type", "Distance", "Runner Comments", "Claude"]
 SAMPLE_ROWS = [
     HEADER,
-    ["Sunday",  "05/10/2026", "Walk",     "4km walk",       "Ran 5k outdoor. Felt heavy at first", ""],
-    ["Monday",  "05/11/2026", "Strength", "Strength only"],   # trailing empty cols truncated by API
-    ["Tuesday", "05/12/2026", "Running",  "Easy 10km"],
+    [
+        "Sunday",
+        "05/10/2026",
+        "Walk",
+        "4km walk",
+        "Ran 5k outdoor. Felt heavy at first",
+        "",
+    ],
+    [
+        "Monday",
+        "05/11/2026",
+        "Strength",
+        "Strength only",
+    ],  # trailing empty cols truncated by API
+    ["Tuesday", "05/12/2026", "Running", "Easy 10km"],
 ]
 
 
 @pytest.fixture
 def sheets_client():
-    with patch("app.sheets.client.build") as mock_build, \
-         patch("app.sheets.client.Credentials") as mock_creds:
+    with (
+        patch("app.sheets.client.build") as mock_build,
+        patch("app.sheets.client.Credentials") as mock_creds,
+    ):
         mock_creds.from_service_account_file.return_value = MagicMock()
         client = SheetsClient("credentials.json", SPREADSHEET_ID)
         yield client, mock_build.return_value
@@ -38,8 +53,10 @@ def _setup_rows(mock_service, rows: list):
 
 class TestSheetsClientInit:
     def test_loads_credentials_from_path(self):
-        with patch("app.sheets.client.build"), \
-             patch("app.sheets.client.Credentials") as mock_creds:
+        with (
+            patch("app.sheets.client.build"),
+            patch("app.sheets.client.Credentials") as mock_creds,
+        ):
             mock_creds.from_service_account_file.return_value = MagicMock()
 
             SheetsClient("credentials.json", SPREADSHEET_ID)
@@ -49,8 +66,10 @@ class TestSheetsClientInit:
             )
 
     def test_builds_sheets_service(self):
-        with patch("app.sheets.client.build") as mock_build, \
-             patch("app.sheets.client.Credentials") as mock_creds:
+        with (
+            patch("app.sheets.client.build") as mock_build,
+            patch("app.sheets.client.Credentials") as mock_creds,
+        ):
             creds = MagicMock()
             mock_creds.from_service_account_file.return_value = creds
 
@@ -62,15 +81,15 @@ class TestSheetsClientInit:
 class TestFindTabForDate:
     def test_finds_tab_for_same_month_range(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["Runner_May5/15"])
+        _setup_tabs(mock_service, ["May5/15"])
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 10))
 
-        assert result == "Runner_May5/15"
+        assert result == "May5/15"
 
     def test_finds_tab_for_cross_month_range(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["Runner_Apr28/May4"])
+        _setup_tabs(mock_service, ["Apr28/May4"])
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 3))
 
@@ -102,7 +121,9 @@ class TestFindTabForDate:
 
     def test_picks_correct_tab_among_multiple(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["Runner_Apr21/27", "Runner_Apr28/May4", "Runner_May5/15"])
+        _setup_tabs(
+            mock_service, ["Runner_Apr21/27", "Runner_Apr28/May4", "Runner_May5/15"]
+        )
 
         result = client.find_tab_for_date("Runner", date(2026, 4, 30))
 
@@ -124,7 +145,12 @@ class TestGetRowForDate:
         result = client.get_row_for_date("Runner_May5/15", date(2026, 5, 10))
 
         assert set(result.keys()) == {
-            "row_index", "day", "date", "session_type", "planned", "athlete_comments"
+            "row_index",
+            "day",
+            "date",
+            "session_type",
+            "planned",
+            "athlete_comments",
         }
 
     def test_matches_row_by_date(self, sheets_client):
@@ -213,5 +239,7 @@ class TestWriteAnalysis:
 
         client.write_analysis("Runner_May5/15", 5, "Some analysis")
 
-        update_call = mock_service.spreadsheets.return_value.values.return_value.update.call_args
+        update_call = (
+            mock_service.spreadsheets.return_value.values.return_value.update.call_args
+        )
         assert "!E" not in update_call.kwargs["range"]

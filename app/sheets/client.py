@@ -13,18 +13,17 @@ class SheetsClient:
         self._service = build("sheets", "v4", credentials=creds)
 
     def find_tab_for_date(self, runner_name: str, activity_date: date) -> str:
-        meta = self._service.spreadsheets().get(
-            spreadsheetId=self._spreadsheet_id
-        ).execute()
+        meta = (
+            self._service.spreadsheets()
+            .get(spreadsheetId=self._spreadsheet_id)
+            .execute()
+        )
         tabs = [s["properties"]["title"] for s in meta["sheets"]]
 
-        prefix = f"{runner_name}_"
-        for tab in tabs:
-            if not tab.startswith(prefix):
-                continue
+        for tab in reversed(tabs):
             try:
-                start, end = _parse_tab_date_range(tab[len(prefix):], activity_date.year)
-                if start <= activity_date <= end:
+                start, end = _parse_tab_date_range(tab, activity_date.year)
+                if start <= activity_date <= end and start.year == activity_date.year:
                     return tab
             except ValueError:
                 continue
@@ -32,10 +31,15 @@ class SheetsClient:
         raise ValueError(f"No tab found for {runner_name} on {activity_date}")
 
     def get_row_for_date(self, tab_name: str, activity_date: date) -> dict:
-        result = self._service.spreadsheets().values().get(
-            spreadsheetId=self._spreadsheet_id,
-            range=f"{tab_name}!A:F",
-        ).execute()
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self._spreadsheet_id,
+                range=f"{tab_name}!A:F",
+            )
+            .execute()
+        )
         values = result.get("values", [])
 
         target = activity_date.strftime("%m/%d/%Y")

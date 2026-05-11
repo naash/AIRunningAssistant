@@ -1,5 +1,8 @@
 import os
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 os.environ.setdefault("STRAVA_CLIENT_ID", "test_client_id")
 os.environ.setdefault("STRAVA_CLIENT_SECRET", "test_client_secret")
