@@ -9,7 +9,7 @@ class WhatsAppClient:
         self._token = token
         self._phone_number_id = phone_number_id
 
-    def send_message(self, to: str, message: str) -> None:
+    def send_message(self, to: str, message: str) -> dict:
         url = f"{BASE_URL}/{API_VERSION}/{self._phone_number_id}/messages"
         response = httpx.post(
             url,
@@ -25,3 +25,4 @@ class WhatsAppClient:
             },
         )
         response.raise_for_status()
+        return response.json()

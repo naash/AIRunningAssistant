@@ -1,5 +1,8 @@
-from datetime import date, datetime
 from stravalib import Client
+
+
+def _to_seconds(value) -> int:
+    return int(value)
 
 
 class StravaClient:
@@ -11,6 +14,12 @@ class StravaClient:
             refresh_token=refresh_token,
         )
         self._stravalib.access_token = token["access_token"]
+
+    def get_latest_activity_id(self) -> int:
+        activities = list(self._stravalib.get_activities(limit=1))
+        if not activities:
+            raise ValueError("No activities found")
+        return activities[0].id
 
     def get_activity(self, activity_id: int) -> dict:
         a = self._stravalib.get_activity(activity_id)
@@ -26,8 +35,8 @@ class StravaClient:
             # Time
             "start_date": a.start_date.date(),
             "start_date_local": a.start_date_local,
-            "moving_time": int(a.moving_time.total_seconds()),
-            "elapsed_time": int(a.elapsed_time.total_seconds()),
+            "moving_time": _to_seconds(a.moving_time),
+            "elapsed_time": _to_seconds(a.elapsed_time),
 
             # Distance & speed
             "distance": float(a.distance),
@@ -65,8 +74,8 @@ def _normalize_splits(splits) -> list | None:
         {
             "split": s.split,
             "distance": float(s.distance),
-            "moving_time": int(s.moving_time.total_seconds()),
-            "elapsed_time": int(s.elapsed_time.total_seconds()),
+            "moving_time": _to_seconds(s.moving_time),
+            "elapsed_time": _to_seconds(s.elapsed_time),
             "average_speed": float(s.average_speed),
             "elevation_difference": float(s.elevation_difference),
             "average_heartrate": s.average_heartrate,

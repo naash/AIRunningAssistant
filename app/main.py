@@ -1,6 +1,12 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
+from pydantic import BaseModel
 from app.config import settings
 from app.pipeline import run_pipeline
+
+
+class ProcessRequest(BaseModel):
+    activity_id: int | None = None
+
 
 app = FastAPI(title="AI Running Assistant")
 
@@ -22,3 +28,21 @@ async def strava_event(payload: dict):
         if payload.get("owner_id") == settings.strava_athlete_id:
             await run_pipeline(payload["object_id"])
     return {"status": "ok"}
+
+
+@app.post("/process-recent")
+async def process_recent(body: ProcessRequest | None = Body(default=None)):
+    from app.strava.client import StravaClient
+
+    if body and body.activity_id:
+        activity_id = body.activity_id
+    else:
+        client = StravaClient(
+            settings.strava_client_id,
+            settings.strava_client_secret,
+            settings.strava_refresh_token,
+        )
+        activity_id = client.get_latest_activity_id()
+
+    await run_pipeline(activity_id)
+    return {"status": "ok", "activity_id": activity_id}

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from app.main import app; print\\('Routes:', [r.path for r in app.routes]\\)\")",
+      "Bash(curl.exe -s -X POST https://www.strava.com/oauth/token -d client_id=238784 -d client_secret=c4c158e37b7477aab01aadc3959912407675fb51 -d code=a24ad9d30212d070044fd9060e339972e47cf5b2 -d grant_type=authorization_code)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
