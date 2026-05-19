@@ -1,13 +1,24 @@
+from pathlib import Path
+
 import anthropic
 
 MODEL = "claude-sonnet-4-6"
 
-SYSTEM_PROMPT = (
+_RUNNER_MD = Path(__file__).parent.parent.parent / "runner.md"
+
+_BASE_SYSTEM_PROMPT = (
     "You are a running coach assistant. "
     "Provide a brief, factual, concise summary comparing the runner's actual "
     "performance against their planned session. No fluff. Stick to key metrics "
-    "and deviations from the plan."
+    "and deviations from the plan. Use activities description for qualitative analysis"
 )
+
+
+def _build_system_prompt() -> str:
+    if not _RUNNER_MD.exists():
+        return _BASE_SYSTEM_PROMPT
+    runner_context = _RUNNER_MD.read_text(encoding="utf-8").strip()
+    return f"{_BASE_SYSTEM_PROMPT}\n\n{runner_context}"
 
 WORKOUT_TYPES = {0: "Default", 1: "Race", 2: "Long Run", 3: "Workout"}
 
@@ -16,12 +27,14 @@ class RunningCoachAgent:
     def __init__(self, client: anthropic.Anthropic):
         self.client = client
 
-    def analyze(self, activity: dict, planned_session: dict) -> str:
-        prompt = _build_prompt(activity, planned_session)
+    def analyze(
+        self, activity: dict, planned_session: dict, weather: dict | None = None
+    ) -> str:
+        prompt = _build_prompt(activity, planned_session, weather)
         response = self.client.messages.create(
             model=MODEL,
             max_tokens=512,
-            system=SYSTEM_PROMPT,
+            system=_build_system_prompt(),
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
@@ -39,8 +52,22 @@ def _duration_str(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
-def _build_prompt(activity: dict, planned_session: dict) -> str:
+def _build_prompt(
+    activity: dict, planned_session: dict, weather: dict | None = None
+) -> str:
     lines = []
+
+    # TODO: Inject runner profile context from "Runner Profile" tab in Google Sheet
+    # Fields to include when implemented:
+    # - VDOT + pace zones (calculated from last race time via Daniels-Gilbert formula)
+    # - HR zones Z1-Z5 (calculated from max HR + resting HR via Karvonen formula)
+    # - Weeks remaining to target race
+    # - Training plan type (Pfitzinger, Daniels etc) — affects how session is evaluated
+    # - Recent tendencies (e.g. goes too hard on easy days, blows up after km 30)
+    # - Injury history (e.g. left posterior chain, ITB) — flag if current session shows risk
+    # - Coach notes — tone and focus areas, what has worked, what's not working? Why certain plans aren't working?
+    # Research needed: finalise Runner Profile tab structure, different marathon training methodologies
+    #  before implementing
 
     # --- Plan ---
     lines.append(f"Planned session: {planned_session['planned']}")
@@ -63,9 +90,13 @@ def _build_prompt(activity: dict, planned_session: dict) -> str:
     workout_label = WORKOUT_TYPES.get(activity.get("workout_type"), "Default")
 
     lines.append(f"- Type: {activity['sport_type']} ({workout_label})")
-    lines.append(f"- Start time (local): {activity['start_date_local'].strftime('%H:%M')}")
+    lines.append(
+        f"- Start time (local): {activity['start_date_local'].strftime('%H:%M')}"
+    )
     lines.append(f"- Distance: {distance_km:.2f} km")
-    lines.append(f"- Moving time: {_duration_str(moving_time_s)} ({moving_time_s} seconds)")
+    lines.append(
+        f"- Moving time: {_duration_str(moving_time_s)} ({moving_time_s} seconds)"
+    )
     lines.append(f"- Average pace: {_pace_str(activity['average_speed'])}")
     lines.append(f"- Max speed: {_pace_str(activity['max_speed'])}")
 
@@ -73,7 +104,9 @@ def _build_prompt(activity: dict, planned_session: dict) -> str:
     if activity.get("total_elevation_gain") is not None:
         lines.append(f"- Elevation gain: {activity['total_elevation_gain']:.0f} m")
     if activity.get("elev_high") is not None and activity.get("elev_low") is not None:
-        lines.append(f"- Elevation range: {activity['elev_low']:.0f} – {activity['elev_high']:.0f} m")
+        lines.append(
+            f"- Elevation range: {activity['elev_low']:.0f} – {activity['elev_high']:.0f} m"
+        )
 
     # Heart rate
     avg_hr = activity.get("average_heartrate")
@@ -99,13 +132,23 @@ def _build_prompt(activity: dict, planned_session: dict) -> str:
     if activity.get("perceived_exertion") is not None:
         lines.append(f"- Perceived exertion: {activity['perceived_exertion']}/10")
 
+    # Weather at start
+    if weather:
+        lines.append(
+            f"- Weather conditions: {weather['temp_c']}°C, {weather['humidity_pct']}% humidity, {weather['windspeed_kmh']} km/h wind"
+        )
+        if weather["temp_c"] > 18:
+            lines.append("Note: warm weather — expect HR to run higher than normal")
+
     # Splits
     splits = activity.get("splits_metric")
     if splits:
         lines.append("")
         lines.append("Per-km splits:")
         for s in splits:
-            hr_str = f" | HR: {s['average_heartrate']:.0f}" if s["average_heartrate"] else ""
+            hr_str = (
+                f" | HR: {s['average_heartrate']:.0f}" if s["average_heartrate"] else ""
+            )
             elev = s["elevation_difference"]
             elev_str = f" | Elev: {'+' if elev >= 0 else ''}{elev:.0f}m"
             lines.append(
@@ -116,5 +159,7 @@ def _build_prompt(activity: dict, planned_session: dict) -> str:
             )
 
     lines.append("")
-    lines.append("Provide a brief factual analysis of how the actual run compares to the plan.")
+    lines.append(
+        "Provide a brief factual analysis of how the actual run compares to the plan."
+    )
     return "\n".join(lines)

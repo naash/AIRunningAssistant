@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
-from app.agents.running_coach import RunningCoachAgent
+from app.agents.running_coach import RunningCoachAgent, _build_system_prompt
 
 MODEL = "claude-sonnet-4-6"
 
@@ -270,3 +270,45 @@ class TestAnalyzeReturnValue:
         result = agent.analyze(sample_activity, sample_planned)
 
         assert isinstance(result, str)
+
+
+class TestRunnerProfileContext:
+    def test_base_prompt_used_when_runner_md_absent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", tmp_path / "runner.md")
+
+        prompt = _build_system_prompt()
+
+        assert "running coach" in prompt.lower()
+
+    def test_runner_md_content_appended_to_prompt(self, tmp_path, monkeypatch):
+        runner_md = tmp_path / "runner.md"
+        runner_md.write_text("VDOT: 52\nTarget race: London Marathon")
+        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
+
+        prompt = _build_system_prompt()
+
+        assert "VDOT: 52" in prompt
+        assert "London Marathon" in prompt
+
+    def test_base_prompt_preserved_when_runner_md_present(self, tmp_path, monkeypatch):
+        runner_md = tmp_path / "runner.md"
+        runner_md.write_text("Runner context here")
+        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
+
+        prompt = _build_system_prompt()
+
+        assert "running coach" in prompt.lower()
+        assert "Runner context here" in prompt
+
+    def test_system_prompt_sent_to_api_includes_runner_md(
+        self, tmp_path, monkeypatch, mock_anthropic, sample_activity, sample_planned
+    ):
+        runner_md = tmp_path / "runner.md"
+        runner_md.write_text("Max HR: 185")
+        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
+        agent = RunningCoachAgent(mock_anthropic)
+
+        agent.analyze(sample_activity, sample_planned)
+
+        system = mock_anthropic.messages.create.call_args.kwargs["system"]
+        assert "Max HR: 185" in system

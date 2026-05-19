@@ -2,67 +2,51 @@
 
 Webhook-driven automation that analyses a completed Strava run against a training plan and sends the coach a WhatsApp summary via Claude AI.
 
-## Pipeline (in order)
-1. Strava fires a webhook when a run is completed
+## Pipeline
+1. Strava webhook fires on activity completion
 2. FastAPI fetches full activity data via stravalib
-3. Google Sheets row is located for the runner by activity date
+3. Google Sheets row is located by activity date
 4. Claude analyses actual vs planned, writes result to column F
-5. Coach receives the analysis on WhatsApp via Meta Cloud API
+5. Coach receives analysis on WhatsApp via Meta Cloud API
 
 ## Sheet structure
-- **A**: Day | **B**: Date (MM/DD/YYYY) | **C**: Session Type | **D**: Planned distance/session
-- **E**: Athlete comments — **NEVER write here under any circumstances**
+- **A**: Day | **B**: Date (MM/DD/YYYY) | **C**: Session Type | **D**: Planned
+- **E**: Athlete comments — **NEVER write here**
 - **F**: Claude's analysis — write here only
 
-### Tab naming convention
-Tabs follow the pattern `{RunnerName}_{MonthStartDate/EndDate}`:
-- Same month: `Name_May5/15`
-- Cross-month: `Name_Apr28/May4`
-
-Tab resolution is always dynamic: list all tabs and find the one whose date range contains the activity date. Never construct the tab name from scratch.
+Tabs follow pattern `{RunnerName}_{StartDate/EndDate}` (e.g., `Name_May5/15` or `Name_Apr28/May4`). Tab resolution is always dynamic via date range matching.
 
 ## Runner configuration
-All runner-specific values live exclusively in `.env` — nothing is hardcoded in source code or docs:
-- `RUNNER_NAME` — used for tab resolution
-- `STRAVA_ATHLETE_ID` — used to validate incoming webhook events
-- `RUNNER_WHATSAPP` — destination number for coach messages
-- `SPREADSHEET_ID` — Google Sheet containing the training plan
-
-Swapping to a different runner means updating `.env` only.
+All runner-specific values in `.env` only — no hardcoded values:
+- `RUNNER_NAME` — tab resolution
+- `STRAVA_ATHLETE_ID` — webhook validation
+- `COACH_WHATSAPP` — message destination
+- `SPREADSHEET_ID` — training plan sheet
+- `GOOGLE_CREDENTIALS_PATH` — service account JSON
+- Strava, Anthropic, WhatsApp tokens
 
 ## Architecture
 ```
-POST /webhook/strava
-        │
-   main.py (FastAPI)
-        │
-   pipeline.py  ──── strava/client.py          fetch activity
-                ──── sheets/client.py          read plan row, write col F
-                ──── agents/running_coach.py   Claude analysis
-                └─── notifications/whatsapp.py send to coach
+POST /webhook/strava → main.py (FastAPI)
+                     → pipeline.py orchestrates:
+                        ├─ strava/client.py          fetch activity + weather
+                        ├─ sheets/client.py          read plan row, write col F
+                        ├─ agents/running_coach.py   Claude analysis
+                        └─ notifications/whatsapp.py send to coach
 ```
 
 ## Key constraints
-- **Never write to column E** — that belongs to the athlete
-- **TDD**: tests are written before implementation, always
-- **Claude analysis tone**: factual, no fluff, summary only
-- All runner context (name, goal, target) comes from the sheet — nothing hardcoded
+- **Never write to column E** — athlete notes only
+- **TDD**: tests written before implementation
+- **Claude tone**: factual, no fluff, summary only
+- **Dynamic tab resolution**: list all tabs, match date range — never construct names
+- **No hardcoding**: all runner context from .env or sheet
 
 ## Tech stack
-- Python 3.11+, FastAPI, Uvicorn
-- Anthropic Python SDK — model `claude-sonnet-4-6`
-- stravalib
-- google-api-python-client + google-auth
-- Meta WhatsApp Cloud API (via httpx)
-- pytest, pytest-asyncio
+Python 3.11+, FastAPI, Uvicorn, Anthropic SDK (claude-sonnet-4-6), stravalib, Google Sheets API, Open-Meteo API (weather), Meta WhatsApp Cloud API, pytest, pytest-asyncio, pydantic-settings
 
-## Development
-```bash
-pip install -r requirements.txt
-cp .env.example .env  # fill in credentials (see SETUP.md)
-uvicorn app.main:app --reload
-```
+## Endpoints
+- `POST /webhook/strava` — Strava webhook (production)
+- `GET /webhook/strava` — Strava challenge verification
+- `POST /process-recent` — Manual trigger for testing (optional: `{"activity_id": 12345}`)
 
-```bash
-pytest
-```

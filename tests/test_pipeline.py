@@ -1,5 +1,5 @@
 import pytest
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch, call
 from app.pipeline import run_pipeline
 from app.config import settings
@@ -14,8 +14,10 @@ SAMPLE_ACTIVITY = {
     "type": "Run",
     "sport_type": "Run",
     "start_date": date(2026, 5, 10),
+    "start_date_local": datetime(2026, 5, 10, 7, 0, 0),
     "distance": 5020.0,
     "moving_time": 1860,
+    "start_latlng": [45.5017, -122.6750],
 }
 
 SAMPLE_ROW = {
@@ -34,7 +36,8 @@ def mock_clients():
          patch("app.pipeline.SheetsClient") as mock_sheets_cls, \
          patch("app.pipeline.RunningCoachAgent") as mock_agent_cls, \
          patch("app.pipeline.WhatsAppClient") as mock_whatsapp_cls, \
-         patch("app.pipeline.anthropic.Anthropic"):
+         patch("app.pipeline.anthropic.Anthropic"), \
+         patch("app.pipeline.get_weather") as mock_weather:
 
         mock_strava = MagicMock()
         mock_strava_cls.return_value = mock_strava
@@ -52,11 +55,14 @@ def mock_clients():
         mock_whatsapp = MagicMock()
         mock_whatsapp_cls.return_value = mock_whatsapp
 
+        mock_weather.return_value = {"temp_c": 18, "humidity_pct": 65, "windspeed_kmh": 8}
+
         yield {
             "strava": mock_strava,
             "sheets": mock_sheets,
             "agent": mock_agent,
             "whatsapp": mock_whatsapp,
+            "weather": mock_weather,
         }
 
 
@@ -66,7 +72,8 @@ class TestPipelineClients:
              patch("app.pipeline.SheetsClient"), \
              patch("app.pipeline.RunningCoachAgent"), \
              patch("app.pipeline.WhatsAppClient"), \
-             patch("app.pipeline.anthropic.Anthropic"):
+             patch("app.pipeline.anthropic.Anthropic"), \
+             patch("app.pipeline.get_weather"):
             mock_cls.return_value = mock_clients["strava"]
             await run_pipeline(ACTIVITY_ID)
 
@@ -81,7 +88,8 @@ class TestPipelineClients:
              patch("app.pipeline.SheetsClient") as mock_cls, \
              patch("app.pipeline.RunningCoachAgent"), \
              patch("app.pipeline.WhatsAppClient"), \
-             patch("app.pipeline.anthropic.Anthropic"):
+             patch("app.pipeline.anthropic.Anthropic"), \
+             patch("app.pipeline.get_weather"):
             _strava.return_value = mock_clients["strava"]
             mock_cls.return_value = mock_clients["sheets"]
             await run_pipeline(ACTIVITY_ID)
@@ -96,7 +104,8 @@ class TestPipelineClients:
              patch("app.pipeline.SheetsClient") as _sheets, \
              patch("app.pipeline.RunningCoachAgent"), \
              patch("app.pipeline.WhatsAppClient") as mock_cls, \
-             patch("app.pipeline.anthropic.Anthropic"):
+             patch("app.pipeline.anthropic.Anthropic"), \
+             patch("app.pipeline.get_weather"):
             _strava.return_value = mock_clients["strava"]
             _sheets.return_value = mock_clients["sheets"]
             mock_cls.return_value = mock_clients["whatsapp"]
@@ -131,7 +140,10 @@ class TestPipelineSteps:
     async def test_agent_receives_activity_and_planned_session(self, mock_clients):
         await run_pipeline(ACTIVITY_ID)
 
-        mock_clients["agent"].analyze.assert_called_once_with(SAMPLE_ACTIVITY, SAMPLE_ROW)
+        call_args = mock_clients["agent"].analyze.call_args
+        assert call_args[0][0] == SAMPLE_ACTIVITY
+        assert call_args[0][1] == SAMPLE_ROW
+        assert call_args[0][2] is not None  # weather dict
 
     async def test_writes_analysis_to_correct_tab_and_row(self, mock_clients):
         await run_pipeline(ACTIVITY_ID)
@@ -140,12 +152,17 @@ class TestPipelineSteps:
             TAB_NAME, SAMPLE_ROW["row_index"], ANALYSIS
         )
 
-    async def test_sends_whatsapp_to_runner_number(self, mock_clients):
+    async def test_sends_whatsapp_to_coach_number(self, mock_clients):
         await run_pipeline(ACTIVITY_ID)
 
         mock_clients["whatsapp"].send_message.assert_called_once_with(
-            settings.runner_whatsapp, ANALYSIS
+            settings.coach_whatsapp, ANALYSIS
         )
+
+    async def test_returns_activity_dict(self, mock_clients):
+        result = await run_pipeline(ACTIVITY_ID)
+
+        assert result == SAMPLE_ACTIVITY
 
     async def test_analysis_written_before_whatsapp_sent(self, mock_clients):
         call_order = []

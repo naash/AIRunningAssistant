@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     strava_athlete_id: int
 
     runner_name: str
-    runner_whatsapp: str
+    coach_whatsapp: str
 
     google_credentials_path: str
     spreadsheet_id: str
@@ -26,4 +26,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

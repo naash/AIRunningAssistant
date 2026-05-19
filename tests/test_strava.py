@@ -1,7 +1,39 @@
 import pytest
 from datetime import datetime, date, timedelta, timezone
 from unittest.mock import MagicMock, patch
-from app.strava.client import StravaClient
+from app.strava.client import StravaClient, _sport_type_str
+
+
+def _make_summary_activity(activity_id: int, sport_type: str = "Run") -> MagicMock:
+    a = MagicMock()
+    a.id = activity_id
+    a.sport_type = sport_type
+    return a
+
+
+def _make_relaxed_sport_type(root: str) -> MagicMock:
+    """Simulate stravalib's RelaxedSportType(root='Run') wrapper."""
+    m = MagicMock()
+    m.root = root
+    m.__str__ = lambda self: f"RelaxedSportType(root='{root}')"
+    return m
+
+
+class TestSportTypeStr:
+    def test_plain_string_returned_as_is(self):
+        a = MagicMock()
+        a.sport_type = "Run"
+        assert _sport_type_str(a) == "Run"
+
+    def test_relaxed_sport_type_unwrapped_via_root(self):
+        a = MagicMock()
+        a.sport_type = _make_relaxed_sport_type("Run")
+        assert _sport_type_str(a) == "Run"
+
+    def test_relaxed_virtual_run_unwrapped(self):
+        a = MagicMock()
+        a.sport_type = _make_relaxed_sport_type("VirtualRun")
+        assert _sport_type_str(a) == "VirtualRun"
 
 
 def _quantity(value: float) -> MagicMock:
@@ -64,6 +96,11 @@ def _make_mock_activity():
     a.suffer_score = 32
     a.perceived_exertion = None
 
+    # Location
+    a.start_latlng = MagicMock()
+    a.start_latlng.lat = 45.5017
+    a.start_latlng.lng = -122.6750
+
     # Splits
     a.splits_metric = [
         _make_mock_split(1, 1000.0, 372, 2.69, 5.0,  148.0, 2),
@@ -96,6 +133,7 @@ EXPECTED_KEYS = {
     "average_heartrate", "max_heartrate",
     "average_cadence", "average_watts",
     "calories", "suffer_score", "perceived_exertion", "average_temp",
+    "start_latlng",
     "splits_metric",
 }
 
@@ -445,3 +483,139 @@ class TestGetActivity:
         result = client.get_activity(12345678)
 
         assert result["splits_metric"] is None
+
+
+class TestGetActivitiesSince:
+    def test_calls_get_activities_with_after_param(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = []
+        after = datetime(2026, 5, 10, 7, 0, 0)
+
+        client.get_activities_since(after)
+
+        mock_stravalib.get_activities.assert_called_once_with(after=after)
+
+    def test_returns_run_ids_oldest_first(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity(30, "Run"),
+            _make_summary_activity(20, "Run"),
+            _make_summary_activity(10, "Run"),
+        ]
+
+        result = client.get_activities_since(datetime(2026, 5, 1))
+
+        assert result == [10, 20, 30]
+
+    def test_filters_out_non_run_sport_types(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity(1, "Ride"),
+            _make_summary_activity(2, "Run"),
+            _make_summary_activity(3, "Swim"),
+            _make_summary_activity(4, "VirtualRun"),
+        ]
+
+        result = client.get_activities_since(datetime(2026, 5, 1))
+
+        assert result == [4, 2]
+
+    def test_includes_trail_run(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity(5, "TrailRun"),
+        ]
+
+        result = client.get_activities_since(datetime(2026, 5, 1))
+
+        assert result == [5]
+
+    def test_excludes_activities_with_none_id(self, strava_client):
+        client, mock_stravalib = strava_client
+        a = _make_summary_activity(None, "Run")
+        mock_stravalib.get_activities.return_value = [a]
+
+        result = client.get_activities_since(datetime(2026, 5, 1))
+
+        assert result == []
+
+    def test_returns_empty_list_when_no_runs(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = []
+
+        result = client.get_activities_since(datetime(2026, 5, 1))
+
+        assert result == []
+
+
+def _make_summary_activity_with_local_date(
+    activity_id: int, local_date: date, sport_type: str = "Run"
+) -> MagicMock:
+    a = _make_summary_activity(activity_id, sport_type)
+    a.start_date_local = datetime(local_date.year, local_date.month, local_date.day, 7, 0, 0)
+    return a
+
+
+class TestGetActivitiesOnDate:
+    def test_queries_with_one_day_padding_each_side(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = []
+
+        client.get_activities_on_date(date(2026, 5, 15))
+
+        mock_stravalib.get_activities.assert_called_once_with(
+            after=datetime(2026, 5, 14, 0, 0, 0),
+            before=datetime(2026, 5, 16, 23, 59, 59),
+        )
+
+    def test_returns_run_matching_local_date(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(99, date(2026, 5, 15)),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15))
+
+        assert result == [99]
+
+    def test_excludes_activities_on_adjacent_local_dates(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(1, date(2026, 5, 14)),
+            _make_summary_activity_with_local_date(2, date(2026, 5, 15)),
+            _make_summary_activity_with_local_date(3, date(2026, 5, 16)),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15))
+
+        assert result == [2]
+
+    def test_filters_non_run_sport_types(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(1, date(2026, 5, 15), "Ride"),
+            _make_summary_activity_with_local_date(2, date(2026, 5, 15), "Run"),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15))
+
+        assert result == [2]
+
+    def test_returns_oldest_first(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(300, date(2026, 5, 15)),
+            _make_summary_activity_with_local_date(100, date(2026, 5, 15)),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15))
+
+        assert result == [100, 300]
+
+    def test_returns_empty_when_no_runs_on_date(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = []
+
+        result = client.get_activities_on_date(date(2026, 5, 15))
+
+        assert result == []
