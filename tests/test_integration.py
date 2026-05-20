@@ -3,8 +3,8 @@ Integration tests — hit the real Google Sheets API.
 
 Requirements:
   - credentials.json present (path from GOOGLE_CREDENTIALS_PATH env var)
-  - SPREADSHEET_ID set in .env or environment
-  - RUNNER_NAME set so the current week's tab can be located
+  - runners.json present with at least one runner configured
+  - The runner's active tab must exist in their spreadsheet
 
 Run with:
   pytest -m integration
@@ -13,37 +13,49 @@ Run with:
 import os
 import pytest
 from datetime import date
+from pathlib import Path
 
 pytestmark = pytest.mark.integration
 
 TEST_ROW = 15
 TEST_VALUE = "integration_test_marker, content pushed from Nishant's app directly (WIP) — safe to delete"
 
+_RUNNERS_JSON = Path(__file__).parent.parent / "runners.json"
+
 
 @pytest.fixture(scope="module")
-def real_sheets_client():
+def runner():
+    from app.config import RunnerRegistry
+
+    if not _RUNNERS_JSON.exists():
+        pytest.skip("runners.json not found")
+
+    registry = RunnerRegistry.load(_RUNNERS_JSON)
+    names = list(registry._by_name.keys())
+    if not names:
+        pytest.skip("No runners configured in runners.json")
+    return registry.get_by_name(names[0])
+
+
+@pytest.fixture(scope="module")
+def real_sheets_client(runner):
     from app.config import settings
     from app.sheets.client import SheetsClient
 
     creds_path = settings.google_credentials_path
-    spreadsheet_id = settings.spreadsheet_id
-    runner_name = settings.runner_name
-
     if not os.path.exists(creds_path):
         pytest.skip(f"credentials file not found: {creds_path}")
 
-    return SheetsClient(creds_path, spreadsheet_id)
+    return SheetsClient(creds_path, runner.spreadsheet_id)
 
 
 @pytest.fixture(scope="module")
-def active_tab(real_sheets_client):
-    from app.config import settings
-
+def active_tab(real_sheets_client, runner):
     try:
-        return real_sheets_client.find_tab_for_date(settings.runner_name, date.today())
+        return real_sheets_client.find_tab_for_date(runner.display_name, date.today())
     except ValueError:
         pytest.skip(
-            f"No active tab found for {settings.runner_name} on {date.today()} — create one in the sheet first"
+            f"No active tab found for {runner.display_name} on {date.today()} — create one in the sheet first"
         )
 
 
@@ -102,21 +114,3 @@ class TestSheetsWriteIntegration:
         written = result.get("values", [[""]])[0][0]
         print(f"Value found: {written!r}")
         assert written == TEST_VALUE
-
-    # def test_cleanup(self, real_sheets_client, active_tab):
-    #     real_sheets_client._service.spreadsheets().values().clear(
-    #         spreadsheetId=real_sheets_client._spreadsheet_id,
-    #         range=f"{active_tab}!F{TEST_ROW}",
-    #     ).execute()
-
-    #     result = (
-    #         real_sheets_client._service.spreadsheets()
-    #         .values()
-    #         .get(
-    #             spreadsheetId=real_sheets_client._spreadsheet_id,
-    #             range=f"{active_tab}!F{TEST_ROW}",
-    #         )
-    #         .execute()
-    #     )
-
-    #     assert result.get("values") is None

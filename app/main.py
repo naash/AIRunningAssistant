@@ -5,55 +5,73 @@ POST /webhook/strava          Strava push notification handler (production use).
 GET  /webhook/strava          Strava webhook subscription verification.
 
 POST /process-recent          Process one activity and cache it.
-                              Body (optional): {"activity_id": 12345}
-                              Omit body to process the athlete's most recent activity.
+                              Body: {"runner_name": "alice", "activity_id": 12345}
+                              Omit activity_id to process the runner's most recent activity.
                               Example:
-                                curl -X POST http://localhost:8000/process-recent
-                                curl -X POST http://localhost:8000/process-recent \
-                                     -H "Content-Type: application/json" \
-                                     -d '{"activity_id": 12345678}'
+                                Invoke-RestMethod -Method Post http://localhost:8000/process-recent `
+                                    -ContentType 'application/json' `
+                                    -Body '{"runner_name": "alice"}'
 
 POST /update-since-last       Process all runs recorded after the last cached activity.
+                              Body: {"runner_name": "alice"}
                               Requires /process-recent to have run at least once.
                               Example:
-                                curl -X POST http://localhost:8000/update-since-last
+                                Invoke-RestMethod -Method Post http://localhost:8000/update-since-last `
+                                    -ContentType 'application/json' `
+                                    -Body '{"runner_name": "alice"}'
 
-POST /update-by-date          Process all runs recorded on a specific date (UTC).
-                              Body: {"date": "YYYY-MM-DD"}
+POST /update-by-date          Process all runs recorded on a specific date.
+                              Body: {"runner_name": "alice", "date": "YYYY-MM-DD"}
                               Example:
-                                curl -X POST http://localhost:8000/update-by-date \
-                                     -H "Content-Type: application/json" \
-                                     -d '{"date": "2024-05-15"}'
+                                Invoke-RestMethod -Method Post http://localhost:8000/update-by-date `
+                                    -ContentType 'application/json' `
+                                    -Body '{"runner_name": "alice", "date": "2026-05-15"}'
 """
 
 import logging
 from datetime import date
+from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from app.cache import load_last_processed, save_last_processed
-from app.config import settings
+from app.config import RunnerConfig, RunnerRegistry, settings
 from app.pipeline import run_pipeline
 from app.strava.client import StravaClient
 
 log = logging.getLogger(__name__)
 
+_RUNNERS_JSON = Path(__file__).parent.parent / "runners.json"
+
+try:
+    registry = RunnerRegistry.load(_RUNNERS_JSON)
+except FileNotFoundError:
+    registry = RunnerRegistry({})
+
 
 class ProcessRequest(BaseModel):
+    runner_name: str
     activity_id: int | None = None
 
 
+class BatchRequest(BaseModel):
+    runner_name: str
+
+
 class DateRequest(BaseModel):
+    runner_name: str
     date: date
 
 
 app = FastAPI(title="AI Running Assistant")
 
+def _get_runner(name: str) -> RunnerConfig:
+    try:
+        return registry.get_by_name(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Runner '{name}' not found.")
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
 
 def _make_strava_client() -> StravaClient:
     return StravaClient(
@@ -63,29 +81,24 @@ def _make_strava_client() -> StravaClient:
     )
 
 
-async def _process_and_cache(activity_id: int) -> dict:
+async def _process_and_cache(activity_id: int, runner: RunnerConfig) -> dict:
     """Run the full pipeline for one activity and persist it to the cache."""
-    activity = await run_pipeline(activity_id)
-    save_last_processed(activity_id, activity["start_date_local"])
+    activity = await run_pipeline(activity_id, runner)
+    save_last_processed(runner.name, activity_id, activity["start_date_local"])
     return activity
 
 
-async def _process_batch(activity_ids: list[int]) -> list[int]:
+async def _process_batch(activity_ids: list[int], runner: RunnerConfig) -> list[int]:
     """Process a list of activity IDs in order, skipping on error. Returns processed IDs."""
     processed = []
     for aid in activity_ids:
         try:
-            await _process_and_cache(aid)
+            await _process_and_cache(aid, runner)
             processed.append(aid)
             log.info("Processed activity %s", aid)
         except Exception as exc:
             log.exception("Failed to process activity %s: %s", aid, exc)
     return processed
-
-
-# ---------------------------------------------------------------------------
-# Strava webhook
-# ---------------------------------------------------------------------------
 
 @app.get("/webhook/strava")
 async def strava_verify(
@@ -96,33 +109,25 @@ async def strava_verify(
         raise HTTPException(status_code=403, detail="Invalid verify token")
     return {"hub.challenge": hub_challenge}
 
-
 @app.post("/webhook/strava")
 async def strava_event(payload: dict):
     if payload.get("object_type") == "activity" and payload.get("aspect_type") == "create":
-        if payload.get("owner_id") == settings.strava_athlete_id:
-            await run_pipeline(payload["object_id"])
+        runner = registry.get_by_athlete_id(payload.get("owner_id"))
+        if runner is not None:
+            await run_pipeline(payload["object_id"], runner)
     return {"status": "ok"}
 
-
-# ---------------------------------------------------------------------------
-# Manual triggers
-# ---------------------------------------------------------------------------
-
 @app.post("/process-recent")
-async def process_recent(body: ProcessRequest | None = Body(default=None)):
-    if body and body.activity_id:
-        activity_id = body.activity_id
-    else:
-        activity_id = _make_strava_client().get_latest_activity_id()
-
-    await _process_and_cache(activity_id)
+async def process_recent(body: ProcessRequest):
+    runner = _get_runner(body.runner_name)
+    activity_id = body.activity_id or _make_strava_client().get_latest_activity_id()
+    await _process_and_cache(activity_id, runner)
     return {"status": "ok", "activity_id": activity_id}
 
-
 @app.post("/update-since-last")
-async def update_since_last_processed_activity():
-    cached = load_last_processed()
+async def update_since_last_processed_activity(body: BatchRequest):
+    runner = _get_runner(body.runner_name)
+    cached = load_last_processed(runner.name)
     if cached is None:
         raise HTTPException(
             status_code=400,
@@ -135,16 +140,16 @@ async def update_since_last_processed_activity():
     if not activity_ids:
         return {"status": "ok", "processed": [], "message": "No new activities since last processed run."}
 
-    processed = await _process_batch(activity_ids)
+    processed = await _process_batch(activity_ids, runner)
     return {"status": "ok", "processed": processed}
-
 
 @app.post("/update-by-date")
 async def update_by_date(body: DateRequest):
+    runner = _get_runner(body.runner_name)
     activity_ids = _make_strava_client().get_activities_on_date(body.date)
 
     if not activity_ids:
         return {"status": "ok", "processed": [], "message": f"No run activities found on {body.date}."}
 
-    processed = await _process_batch(activity_ids)
+    processed = await _process_batch(activity_ids, runner)
     return {"status": "ok", "processed": processed}

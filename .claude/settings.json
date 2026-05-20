@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest tests/ -v)"
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Programming Workbench\\\\Python\\\\ai running assistant\\\\runners\")",
+      "Bash(python -m pytest tests/ -x -q --ignore=tests/test_integration.py)",
+      "Bash(python -m pytest tests/ -q --ignore=tests/test_integration.py)"
     ]
   }
 }

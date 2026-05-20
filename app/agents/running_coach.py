@@ -14,18 +14,20 @@ _BASE_SYSTEM_PROMPT = (
 )
 
 
-def _build_system_prompt() -> str:
-    if not _RUNNER_MD.exists():
+def _build_system_prompt(runner_md: Path) -> str:
+    if not runner_md.exists():
         return _BASE_SYSTEM_PROMPT
-    runner_context = _RUNNER_MD.read_text(encoding="utf-8").strip()
+    runner_context = runner_md.read_text(encoding="utf-8").strip()
     return f"{_BASE_SYSTEM_PROMPT}\n\n{runner_context}"
+
 
 WORKOUT_TYPES = {0: "Default", 1: "Race", 2: "Long Run", 3: "Workout"}
 
 
 class RunningCoachAgent:
-    def __init__(self, client: anthropic.Anthropic):
+    def __init__(self, client: anthropic.Anthropic, runner_md_path: Path | None = None):
         self.client = client
+        self._runner_md_path = runner_md_path if runner_md_path is not None else _RUNNER_MD
 
     def analyze(
         self, activity: dict, planned_session: dict, weather: dict | None = None
@@ -34,7 +36,7 @@ class RunningCoachAgent:
         response = self.client.messages.create(
             model=MODEL,
             max_tokens=512,
-            system=_build_system_prompt(),
+            system=_build_system_prompt(self._runner_md_path),
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
@@ -56,18 +58,6 @@ def _build_prompt(
     activity: dict, planned_session: dict, weather: dict | None = None
 ) -> str:
     lines = []
-
-    # TODO: Inject runner profile context from "Runner Profile" tab in Google Sheet
-    # Fields to include when implemented:
-    # - VDOT + pace zones (calculated from last race time via Daniels-Gilbert formula)
-    # - HR zones Z1-Z5 (calculated from max HR + resting HR via Karvonen formula)
-    # - Weeks remaining to target race
-    # - Training plan type (Pfitzinger, Daniels etc) — affects how session is evaluated
-    # - Recent tendencies (e.g. goes too hard on easy days, blows up after km 30)
-    # - Injury history (e.g. left posterior chain, ITB) — flag if current session shows risk
-    # - Coach notes — tone and focus areas, what has worked, what's not working? Why certain plans aren't working?
-    # Research needed: finalise Runner Profile tab structure, different marathon training methodologies
-    #  before implementing
 
     # --- Plan ---
     lines.append(f"Planned session: {planned_session['planned']}")

@@ -1,12 +1,18 @@
 import pytest
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from app.pipeline import run_pipeline
-from app.config import settings
+from app.config import RunnerConfig, settings
 
 ACTIVITY_ID = 12345678
 TAB_NAME = "Runner_May5/15"
 ANALYSIS = "Good effort. Ran further than planned. Pace consistent."
+
+SAMPLE_RUNNER = RunnerConfig(
+    display_name="TestRunner",
+    strava_athlete_id=41195238,
+    spreadsheet_id="test_spreadsheet_id",
+)
 
 SAMPLE_ACTIVITY = {
     "id": ACTIVITY_ID,
@@ -75,7 +81,7 @@ class TestPipelineClients:
              patch("app.pipeline.anthropic.Anthropic"), \
              patch("app.pipeline.get_weather"):
             mock_cls.return_value = mock_clients["strava"]
-            await run_pipeline(ACTIVITY_ID)
+            await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
             mock_cls.assert_called_once_with(
                 settings.strava_client_id,
@@ -92,11 +98,11 @@ class TestPipelineClients:
              patch("app.pipeline.get_weather"):
             _strava.return_value = mock_clients["strava"]
             mock_cls.return_value = mock_clients["sheets"]
-            await run_pipeline(ACTIVITY_ID)
+            await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
             mock_cls.assert_called_once_with(
                 settings.google_credentials_path,
-                settings.spreadsheet_id,
+                SAMPLE_RUNNER.spreadsheet_id,
             )
 
     async def test_whatsapp_client_initialised_from_settings(self, mock_clients):
@@ -109,7 +115,7 @@ class TestPipelineClients:
             _strava.return_value = mock_clients["strava"]
             _sheets.return_value = mock_clients["sheets"]
             mock_cls.return_value = mock_clients["whatsapp"]
-            await run_pipeline(ACTIVITY_ID)
+            await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
             mock_cls.assert_called_once_with(
                 settings.whatsapp_token,
@@ -119,26 +125,26 @@ class TestPipelineClients:
 
 class TestPipelineSteps:
     async def test_fetches_activity_by_id(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["strava"].get_activity.assert_called_once_with(ACTIVITY_ID)
 
     async def test_finds_tab_using_activity_date_and_runner_name(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["sheets"].find_tab_for_date.assert_called_once_with(
-            settings.runner_name, date(2026, 5, 10)
+            SAMPLE_RUNNER.display_name, date(2026, 5, 10)
         )
 
     async def test_gets_row_using_tab_and_activity_date(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["sheets"].get_row_for_date.assert_called_once_with(
             TAB_NAME, date(2026, 5, 10)
         )
 
     async def test_agent_receives_activity_and_planned_session(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         call_args = mock_clients["agent"].analyze.call_args
         assert call_args[0][0] == SAMPLE_ACTIVITY
@@ -146,21 +152,21 @@ class TestPipelineSteps:
         assert call_args[0][2] is not None  # weather dict
 
     async def test_writes_analysis_to_correct_tab_and_row(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["sheets"].write_analysis.assert_called_once_with(
             TAB_NAME, SAMPLE_ROW["row_index"], ANALYSIS
         )
 
     async def test_sends_whatsapp_to_coach_number(self, mock_clients):
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["whatsapp"].send_message.assert_called_once_with(
-            settings.coach_whatsapp, ANALYSIS
+            settings.whatsapp_coach_number, ANALYSIS
         )
 
     async def test_returns_activity_dict(self, mock_clients):
-        result = await run_pipeline(ACTIVITY_ID)
+        result = await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         assert result == SAMPLE_ACTIVITY
 
@@ -169,7 +175,7 @@ class TestPipelineSteps:
         mock_clients["sheets"].write_analysis.side_effect = lambda *a, **kw: call_order.append("write")
         mock_clients["whatsapp"].send_message.side_effect = lambda *a, **kw: call_order.append("whatsapp")
 
-        await run_pipeline(ACTIVITY_ID)
+        await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         assert call_order == ["write", "whatsapp"]
 
@@ -179,7 +185,7 @@ class TestPipelineErrorHandling:
         mock_clients["sheets"].find_tab_for_date.side_effect = ValueError("No tab found")
 
         with pytest.raises(ValueError):
-            await run_pipeline(ACTIVITY_ID)
+            await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["agent"].analyze.assert_not_called()
         mock_clients["sheets"].write_analysis.assert_not_called()
@@ -189,7 +195,7 @@ class TestPipelineErrorHandling:
         mock_clients["sheets"].get_row_for_date.side_effect = ValueError("No row found")
 
         with pytest.raises(ValueError):
-            await run_pipeline(ACTIVITY_ID)
+            await run_pipeline(ACTIVITY_ID, SAMPLE_RUNNER)
 
         mock_clients["agent"].analyze.assert_not_called()
         mock_clients["sheets"].write_analysis.assert_not_called()

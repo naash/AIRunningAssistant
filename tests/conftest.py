@@ -8,14 +8,11 @@ os.environ.setdefault("STRAVA_CLIENT_ID", "test_client_id")
 os.environ.setdefault("STRAVA_CLIENT_SECRET", "test_client_secret")
 os.environ.setdefault("STRAVA_REFRESH_TOKEN", "test_refresh_token")
 os.environ.setdefault("STRAVA_VERIFY_TOKEN", "test_verify_token")
-os.environ.setdefault("STRAVA_ATHLETE_ID", "41195238")
-os.environ.setdefault("RUNNER_NAME", "TestRunner")
-os.environ.setdefault("COACH_WHATSAPP", "+10000000000")
 os.environ.setdefault("GOOGLE_CREDENTIALS_PATH", "google-sheets-credentials.json")
-os.environ.setdefault("SPREADSHEET_ID", "test_spreadsheet_id")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test_anthropic_key")
 os.environ.setdefault("WHATSAPP_TOKEN", "test_whatsapp_token")
 os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "test_phone_number_id")
+os.environ.setdefault("WHATSAPP_COACH_NUMBER", "+10000000000")
 
 
 @pytest.fixture

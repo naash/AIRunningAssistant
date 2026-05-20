@@ -2,9 +2,8 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock, patch
 from app.sheets.client import SheetsClient
-from app.config import settings
 
-SPREADSHEET_ID = settings.spreadsheet_id
+SPREADSHEET_ID = "test_spreadsheet_id"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 HEADER = ["Day", "Date", "Session Type", "Distance", "Runner Comments", "Claude"]
@@ -93,41 +92,39 @@ class TestFindTabForDate:
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 3))
 
-        assert result == "Runner_Apr28/May4"
+        assert result == "Apr28/May4"
 
     def test_date_on_start_boundary_is_included(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["Runner_May5/15"])
+        _setup_tabs(mock_service, ["May5/15"])
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 5))
 
-        assert result == "Runner_May5/15"
+        assert result == "May5/15"
 
     def test_date_on_end_boundary_is_included(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["Runner_May5/15"])
+        _setup_tabs(mock_service, ["May5/15"])
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 15))
 
-        assert result == "Runner_May5/15"
+        assert result == "May5/15"
 
-    def test_ignores_tabs_for_other_runners(self, sheets_client):
+    def test_skips_non_date_tabs(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(mock_service, ["OtherRunner_May5/15", "Runner_May5/15"])
+        _setup_tabs(mock_service, ["Sheet1", "Runner Profile", "May5/15"])
 
         result = client.find_tab_for_date("Runner", date(2026, 5, 10))
 
-        assert result == "Runner_May5/15"
+        assert result == "May5/15"
 
     def test_picks_correct_tab_among_multiple(self, sheets_client):
         client, mock_service = sheets_client
-        _setup_tabs(
-            mock_service, ["Runner_Apr21/27", "Runner_Apr28/May4", "Runner_May5/15"]
-        )
+        _setup_tabs(mock_service, ["Apr21/27", "Apr28/May4", "May5/15"])
 
         result = client.find_tab_for_date("Runner", date(2026, 4, 30))
 
-        assert result == "Runner_Apr28/May4"
+        assert result == "Apr28/May4"
 
     def test_raises_when_no_tab_matches(self, sheets_client):
         client, mock_service = sheets_client

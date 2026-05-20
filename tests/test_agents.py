@@ -273,40 +273,35 @@ class TestAnalyzeReturnValue:
 
 
 class TestRunnerProfileContext:
-    def test_base_prompt_used_when_runner_md_absent(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", tmp_path / "runner.md")
-
-        prompt = _build_system_prompt()
+    def test_base_prompt_used_when_runner_md_absent(self, tmp_path):
+        prompt = _build_system_prompt(tmp_path / "runner.md")
 
         assert "running coach" in prompt.lower()
 
-    def test_runner_md_content_appended_to_prompt(self, tmp_path, monkeypatch):
+    def test_runner_md_content_appended_to_prompt(self, tmp_path):
         runner_md = tmp_path / "runner.md"
         runner_md.write_text("VDOT: 52\nTarget race: London Marathon")
-        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
 
-        prompt = _build_system_prompt()
+        prompt = _build_system_prompt(runner_md)
 
         assert "VDOT: 52" in prompt
         assert "London Marathon" in prompt
 
-    def test_base_prompt_preserved_when_runner_md_present(self, tmp_path, monkeypatch):
+    def test_base_prompt_preserved_when_runner_md_present(self, tmp_path):
         runner_md = tmp_path / "runner.md"
         runner_md.write_text("Runner context here")
-        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
 
-        prompt = _build_system_prompt()
+        prompt = _build_system_prompt(runner_md)
 
         assert "running coach" in prompt.lower()
         assert "Runner context here" in prompt
 
     def test_system_prompt_sent_to_api_includes_runner_md(
-        self, tmp_path, monkeypatch, mock_anthropic, sample_activity, sample_planned
+        self, tmp_path, mock_anthropic, sample_activity, sample_planned
     ):
         runner_md = tmp_path / "runner.md"
         runner_md.write_text("Max HR: 185")
-        monkeypatch.setattr("app.agents.running_coach._RUNNER_MD", runner_md)
-        agent = RunningCoachAgent(mock_anthropic)
+        agent = RunningCoachAgent(mock_anthropic, runner_md_path=runner_md)
 
         agent.analyze(sample_activity, sample_planned)
 

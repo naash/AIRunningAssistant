@@ -1,0 +1,12 @@
+{
+  "runner1": {
+    "display_name": "Alice",
+    "strava_athlete_id": 12345678,
+    "spreadsheet_id": "1aBcDeFgHiJkLmNoPqRsTuVwXyZ"
+  },
+  "runner2": {
+    "display_name": "Bob",
+    "strava_athlete_id": 87654321,
+    "spreadsheet_id": "2ZyXwVuTsRqPoNmLkJiHgFeDcBa"
+  }
+}

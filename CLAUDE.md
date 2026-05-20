@@ -14,7 +14,7 @@ Webhook-driven automation that analyses a completed Strava run against a trainin
 - **E**: Athlete comments — **NEVER write here**
 - **F**: Claude's analysis — write here only
 
-Tabs follow pattern `{RunnerName}_{StartDate/EndDate}` (e.g., `Name_May5/15` or `Name_Apr28/May4`). Tab resolution is always dynamic via date range matching — never construct tab names manually.
+Tabs follow pattern `{StartDate/EndDate}` (e.g., `May5/15` or `Apr28/May4`). Tab resolution is always dynamic via date range matching — never construct tab names manually.
 
 ## Runner configuration
 All credentials and identifiers in `.env` only — no hardcoded values:
