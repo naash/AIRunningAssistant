@@ -113,7 +113,7 @@ class TestStravaWebhookEvent:
         )
 
         assert response.status_code == 200
-        mock_pipeline.assert_awaited_once_with(ACTIVITY_ID, SAMPLE_RUNNER)
+        mock_pipeline.assert_awaited_once_with(SAMPLE_RUNNER, activity_id=ACTIVITY_ID)
 
     async def test_ignores_wrong_owner(self, http_client, mock_pipeline, mock_registry):
         mock_registry.get_by_athlete_id.return_value = None
@@ -175,14 +175,14 @@ class TestProcessRecent:
         await http_client.post("/process-recent", json={"runner_name": RUNNER_NAME})
 
         mock_strava.get_latest_activity_id.assert_called_once()
-        mock_pipeline.assert_awaited_once_with(ACTIVITY_ID, SAMPLE_RUNNER)
+        mock_pipeline.assert_awaited_once_with(SAMPLE_RUNNER, activity_id=ACTIVITY_ID)
 
     async def test_uses_provided_activity_id(
         self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
     ):
         await http_client.post("/process-recent", json={"runner_name": RUNNER_NAME, "activity_id": ACTIVITY_ID_2})
 
-        mock_pipeline.assert_awaited_once_with(ACTIVITY_ID_2, SAMPLE_RUNNER)
+        mock_pipeline.assert_awaited_once_with(SAMPLE_RUNNER, activity_id=ACTIVITY_ID_2)
         mock_strava.get_latest_activity_id.assert_not_called()
 
     async def test_returns_activity_id_in_response(
@@ -242,7 +242,7 @@ class TestUpdateSinceLast:
 
         await http_client.post("/update-since-last", json={"runner_name": RUNNER_NAME})
 
-        mock_pipeline.assert_awaited_once_with(ACTIVITY_ID_2, SAMPLE_RUNNER)
+        mock_pipeline.assert_awaited_once_with(SAMPLE_RUNNER, activity_id=ACTIVITY_ID_2)
 
     async def test_returns_processed_ids(
         self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
@@ -287,45 +287,35 @@ class TestUpdateSinceLast:
 # ---------------------------------------------------------------------------
 
 class TestUpdateByDate:
-    async def test_fetches_activities_for_given_date(
-        self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
+    async def test_calls_pipeline_with_on_date(
+        self, http_client, mock_pipeline, mock_cache_fns, mock_registry
     ):
-        await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
-
         from datetime import date
-        mock_strava.get_activities_on_date.assert_called_once_with(date(2026, 5, 15))
-
-    async def test_processes_found_activities(
-        self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
-    ):
-        mock_strava.get_activities_on_date.return_value = [ACTIVITY_ID]
-
         await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
 
-        mock_pipeline.assert_awaited_once_with(ACTIVITY_ID, SAMPLE_RUNNER)
+        mock_pipeline.assert_awaited_once_with(SAMPLE_RUNNER, on_date=date(2026, 5, 15))
 
-    async def test_returns_processed_ids(
-        self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
+    async def test_saves_cache_after_pipeline(
+        self, http_client, mock_pipeline, mock_cache_fns, mock_registry
     ):
-        mock_strava.get_activities_on_date.return_value = [ACTIVITY_ID]
+        from datetime import date
+        mock_save, _ = mock_cache_fns
+        await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
 
-        response = await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
-
-        assert ACTIVITY_ID in response.json()["processed"]
-
-    async def test_returns_empty_when_no_activities_on_date(
-        self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
-    ):
-        mock_strava.get_activities_on_date.return_value = []
-
-        response = await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
-
-        assert response.json()["processed"] == []
-        mock_pipeline.assert_not_awaited()
+        mock_save.assert_called_once_with(RUNNER_NAME, ACTIVITY_ID, SAMPLE_ACTIVITY["start_date_local"])
 
     async def test_returns_ok_status(
-        self, http_client, mock_pipeline, mock_strava, mock_cache_fns, mock_registry
+        self, http_client, mock_pipeline, mock_cache_fns, mock_registry
     ):
         response = await http_client.post("/update-by-date", json={"runner_name": RUNNER_NAME, "date": "2026-05-15"})
 
         assert response.json()["status"] == "ok"
+
+    async def test_returns_404_for_unknown_runner(
+        self, http_client, mock_pipeline, mock_registry
+    ):
+        mock_registry.get_by_name.side_effect = KeyError("notfound")
+
+        response = await http_client.post("/update-by-date", json={"runner_name": "notfound", "date": "2026-05-15"})
+
+        assert response.status_code == 404

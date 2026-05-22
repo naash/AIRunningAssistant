@@ -63,7 +63,7 @@ class TestSheetsWriteIntegration:
     def test_write_analysis_updates_correct_cell(self, real_sheets_client, active_tab):
         print(f"\nSpreadsheet ID: {real_sheets_client._spreadsheet_id}")
         print(f"Tab: {active_tab}")
-        print(f"Writing to: {active_tab}!F{TEST_ROW}")
+        print(f"Writing to: {active_tab}!G{TEST_ROW}")
 
         real_sheets_client.write_analysis(active_tab, TEST_ROW, TEST_VALUE)
 
@@ -72,7 +72,7 @@ class TestSheetsWriteIntegration:
             .values()
             .get(
                 spreadsheetId=real_sheets_client._spreadsheet_id,
-                range=f"{active_tab}!F{TEST_ROW}",
+                range=f"{active_tab}!G{TEST_ROW}",
             )
             .execute()
         )
@@ -81,32 +81,32 @@ class TestSheetsWriteIntegration:
         print(f"Value read back: {written!r}")
         assert written == TEST_VALUE
 
-    def test_write_does_not_touch_column_e(self, real_sheets_client, active_tab):
-        print(f"\nChecking column E is untouched at row {TEST_ROW}")
+    def test_write_does_not_touch_column_e_or_f(self, real_sheets_client, active_tab):
+        print(f"\nChecking columns E and F are untouched at row {TEST_ROW}")
 
-        result = (
-            real_sheets_client._service.spreadsheets()
-            .values()
-            .get(
-                spreadsheetId=real_sheets_client._spreadsheet_id,
-                range=f"{active_tab}!E{TEST_ROW}",
+        for col in ("E", "F"):
+            result = (
+                real_sheets_client._service.spreadsheets()
+                .values()
+                .get(
+                    spreadsheetId=real_sheets_client._spreadsheet_id,
+                    range=f"{active_tab}!{col}{TEST_ROW}",
+                )
+                .execute()
             )
-            .execute()
-        )
-
-        col_e = result.get("values", [[""]])[0][0] if result.get("values") else ""
-        print(f"Column E value: {col_e!r}")
-        assert col_e == ""
+            value = result.get("values", [[""]])[0][0] if result.get("values") else ""
+            print(f"Column {col} value: {value!r}")
+            assert value == "", f"Column {col} should be empty but got {value!r}"
 
     def test_written_value_persists(self, real_sheets_client, active_tab):
-        print(f"\nVerifying value persists at {active_tab}!F{TEST_ROW}")
+        print(f"\nVerifying value persists at {active_tab}!G{TEST_ROW}")
 
         result = (
             real_sheets_client._service.spreadsheets()
             .values()
             .get(
                 spreadsheetId=real_sheets_client._spreadsheet_id,
-                range=f"{active_tab}!F{TEST_ROW}",
+                range=f"{active_tab}!G{TEST_ROW}",
             )
             .execute()
         )

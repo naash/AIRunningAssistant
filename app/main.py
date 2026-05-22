@@ -81,10 +81,16 @@ def _make_strava_client() -> StravaClient:
     )
 
 
-async def _process_and_cache(activity_id: int, runner: RunnerConfig) -> dict:
-    """Run the full pipeline for one activity and persist it to the cache."""
-    activity = await run_pipeline(activity_id, runner)
-    save_last_processed(runner.name, activity_id, activity["start_date_local"])
+async def _process_and_cache(
+    runner: RunnerConfig,
+    activity_id: int | None = None,
+    on_date=None,
+) -> dict:
+    if activity_id is not None:
+        activity = await run_pipeline(runner, activity_id=activity_id)
+    else:
+        activity = await run_pipeline(runner, on_date=on_date)
+    save_last_processed(runner.name, activity["id"], activity["start_date_local"])
     return activity
 
 
@@ -93,7 +99,7 @@ async def _process_batch(activity_ids: list[int], runner: RunnerConfig) -> list[
     processed = []
     for aid in activity_ids:
         try:
-            await _process_and_cache(aid, runner)
+            await _process_and_cache(runner, activity_id=aid)
             processed.append(aid)
             log.info("Processed activity %s", aid)
         except Exception as exc:
@@ -114,15 +120,15 @@ async def strava_event(payload: dict):
     if payload.get("object_type") == "activity" and payload.get("aspect_type") == "create":
         runner = registry.get_by_athlete_id(payload.get("owner_id"))
         if runner is not None:
-            await run_pipeline(payload["object_id"], runner)
+            await run_pipeline(runner, activity_id=payload["object_id"])
     return {"status": "ok"}
 
 @app.post("/process-recent")
 async def process_recent(body: ProcessRequest):
     runner = _get_runner(body.runner_name)
     activity_id = body.activity_id or _make_strava_client().get_latest_activity_id()
-    await _process_and_cache(activity_id, runner)
-    return {"status": "ok", "activity_id": activity_id}
+    activity = await _process_and_cache(runner, activity_id=activity_id)
+    return {"status": "ok", "activity_id": activity["id"]}
 
 @app.post("/update-since-last")
 async def update_since_last_processed_activity(body: BatchRequest):
@@ -146,10 +152,5 @@ async def update_since_last_processed_activity(body: BatchRequest):
 @app.post("/update-by-date")
 async def update_by_date(body: DateRequest):
     runner = _get_runner(body.runner_name)
-    activity_ids = _make_strava_client().get_activities_on_date(body.date)
-
-    if not activity_ids:
-        return {"status": "ok", "processed": [], "message": f"No run activities found on {body.date}."}
-
-    processed = await _process_batch(activity_ids, runner)
-    return {"status": "ok", "processed": processed}
+    await _process_and_cache(runner, on_date=body.date)
+    return {"status": "ok"}

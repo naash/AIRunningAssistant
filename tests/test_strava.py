@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, date, timedelta, timezone
 from unittest.mock import MagicMock, patch
-from app.strava.client import StravaClient, _sport_type_str
+from app.strava.client import StravaClient, _sport_type_str, _RUN_SPORT_TYPES
 
 
 def _make_summary_activity(activity_id: int, sport_type: str = "Run") -> MagicMock:
@@ -549,10 +549,11 @@ class TestGetActivitiesSince:
 
 
 def _make_summary_activity_with_local_date(
-    activity_id: int, local_date: date, sport_type: str = "Run"
+    activity_id: int, local_date: date, sport_type: str = "Run", distance: float = 5000.0
 ) -> MagicMock:
     a = _make_summary_activity(activity_id, sport_type)
     a.start_date_local = datetime(local_date.year, local_date.month, local_date.day, 7, 0, 0)
+    a.distance = distance
     return a
 
 
@@ -571,46 +572,46 @@ class TestGetActivitiesOnDate:
     def test_returns_run_matching_local_date(self, strava_client):
         client, mock_stravalib = strava_client
         mock_stravalib.get_activities.return_value = [
-            _make_summary_activity_with_local_date(99, date(2026, 5, 15)),
+            _make_summary_activity_with_local_date(99, date(2026, 5, 15), distance=5000.0),
         ]
 
         result = client.get_activities_on_date(date(2026, 5, 15))
 
-        assert result == [99]
+        assert result == [{"id": 99, "distance": 5000.0}]
 
     def test_excludes_activities_on_adjacent_local_dates(self, strava_client):
         client, mock_stravalib = strava_client
         mock_stravalib.get_activities.return_value = [
             _make_summary_activity_with_local_date(1, date(2026, 5, 14)),
-            _make_summary_activity_with_local_date(2, date(2026, 5, 15)),
+            _make_summary_activity_with_local_date(2, date(2026, 5, 15), distance=6000.0),
             _make_summary_activity_with_local_date(3, date(2026, 5, 16)),
         ]
 
         result = client.get_activities_on_date(date(2026, 5, 15))
 
-        assert result == [2]
+        assert result == [{"id": 2, "distance": 6000.0}]
 
     def test_filters_non_run_sport_types(self, strava_client):
         client, mock_stravalib = strava_client
         mock_stravalib.get_activities.return_value = [
             _make_summary_activity_with_local_date(1, date(2026, 5, 15), "Ride"),
-            _make_summary_activity_with_local_date(2, date(2026, 5, 15), "Run"),
+            _make_summary_activity_with_local_date(2, date(2026, 5, 15), "Run", distance=7000.0),
         ]
 
         result = client.get_activities_on_date(date(2026, 5, 15))
 
-        assert result == [2]
+        assert result == [{"id": 2, "distance": 7000.0}]
 
     def test_returns_oldest_first(self, strava_client):
         client, mock_stravalib = strava_client
         mock_stravalib.get_activities.return_value = [
-            _make_summary_activity_with_local_date(300, date(2026, 5, 15)),
-            _make_summary_activity_with_local_date(100, date(2026, 5, 15)),
+            _make_summary_activity_with_local_date(300, date(2026, 5, 15), distance=5000.0),
+            _make_summary_activity_with_local_date(100, date(2026, 5, 15), distance=8000.0),
         ]
 
         result = client.get_activities_on_date(date(2026, 5, 15))
 
-        assert result == [100, 300]
+        assert result == [{"id": 100, "distance": 8000.0}, {"id": 300, "distance": 5000.0}]
 
     def test_returns_empty_when_no_runs_on_date(self, strava_client):
         client, mock_stravalib = strava_client
@@ -619,3 +620,63 @@ class TestGetActivitiesOnDate:
         result = client.get_activities_on_date(date(2026, 5, 15))
 
         assert result == []
+
+    def test_strength_session_type_includes_weight_training(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(10, date(2026, 5, 15), "WeightTraining", distance=0.0),
+            _make_summary_activity_with_local_date(11, date(2026, 5, 15), "Run", distance=5000.0),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15), session_type="Strength")
+
+        assert result == [{"id": 10, "distance": 0.0}]
+
+    def test_running_session_type_excludes_weight_training(self, strava_client):
+        client, mock_stravalib = strava_client
+        mock_stravalib.get_activities.return_value = [
+            _make_summary_activity_with_local_date(10, date(2026, 5, 15), "WeightTraining"),
+            _make_summary_activity_with_local_date(11, date(2026, 5, 15), "Run", distance=5000.0),
+        ]
+
+        result = client.get_activities_on_date(date(2026, 5, 15), session_type="Running")
+
+        assert result == [{"id": 11, "distance": 5000.0}]
+
+
+class TestFindBestMatch:
+    def test_returns_single_activity_regardless_of_distance(self):
+        activities = [{"id": 1, "distance": 5000.0}]
+
+        result = StravaClient.find_best_match(activities, 10.0)
+
+        assert result == {"id": 1, "distance": 5000.0}
+
+    def test_returns_first_when_no_planned_distance(self):
+        activities = [{"id": 1, "distance": 5000.0}, {"id": 2, "distance": 10000.0}]
+
+        result = StravaClient.find_best_match(activities, None)
+
+        assert result == {"id": 1, "distance": 5000.0}
+
+    def test_returns_closest_distance_match(self):
+        activities = [{"id": 1, "distance": 5000.0}, {"id": 2, "distance": 10200.0}]
+
+        result = StravaClient.find_best_match(activities, 10.0)
+
+        assert result == {"id": 2, "distance": 10200.0}
+
+    def test_picks_closer_among_multiple_activities(self):
+        activities = [
+            {"id": 1, "distance": 8000.0},
+            {"id": 2, "distance": 10200.0},
+            {"id": 3, "distance": 15000.0},
+        ]
+
+        result = StravaClient.find_best_match(activities, 10.0)
+
+        assert result == {"id": 2, "distance": 10200.0}
+
+    def test_raises_when_no_activities(self):
+        with pytest.raises(ValueError):
+            StravaClient.find_best_match([], 10.0)

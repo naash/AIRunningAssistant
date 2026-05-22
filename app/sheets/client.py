@@ -36,7 +36,7 @@ class SheetsClient:
             .values()
             .get(
                 spreadsheetId=self._spreadsheet_id,
-                range=f"{tab_name}!A:F",
+                range=f"{tab_name}!A:G",
             )
             .execute()
         )
@@ -53,7 +53,8 @@ class SheetsClient:
                     "date": row[1],
                     "session_type": row[2] if len(row) > 2 else "",
                     "planned": row[3] if len(row) > 3 else "",
-                    "athlete_comments": row[4] if len(row) > 4 else "",
+                    "planned_distance": _parse_distance_km(row[4] if len(row) > 4 else ""),
+                    "athlete_comments": row[5] if len(row) > 5 else "",
                 }
 
         raise ValueError(f"No row found for {activity_date} in {tab_name}")
@@ -61,10 +62,17 @@ class SheetsClient:
     def write_analysis(self, tab_name: str, row_index: int, analysis: str) -> None:
         self._service.spreadsheets().values().update(
             spreadsheetId=self._spreadsheet_id,
-            range=f"{tab_name}!F{row_index}",
+            range=f"{tab_name}!G{row_index}",
             valueInputOption="RAW",
             body={"values": [[analysis]]},
         ).execute()
+
+
+def _parse_distance_km(value: str) -> float | None:
+    if not value:
+        return None
+    m = re.search(r"[\d.]+", value)
+    return float(m.group()) if m else None
 
 
 def _parse_tab_date_range(date_range: str, year: int) -> tuple[date, date]:

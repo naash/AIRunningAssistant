@@ -30,23 +30,37 @@ class StravaClient:
         activities = list(self._stravalib.get_activities(after=after))
         return _filter_runs(activities, reverse=True)
 
-    def get_activities_on_date(self, on_date: date) -> list[int]:
-        """Return run activity IDs whose local date matches *on_date*, oldest first.
+    def get_activities_on_date(self, on_date: date, session_type: str = "Running") -> list[dict]:
+        """Return activities on *on_date* matching *session_type*, oldest first.
 
-        Queries ±1 day around the target date to cover any UTC offset, then
-        filters by start_date_local so only activities that actually fell on
-        *on_date* in the athlete's local time are returned.
+        Returns list of dicts with 'id' and 'distance' (meters).
+        Queries ±1 day around the target date to cover UTC offsets.
         """
+        sport_types = _STRENGTH_SPORT_TYPES if session_type == "Strength" else _RUN_SPORT_TYPES
         after = datetime(on_date.year, on_date.month, on_date.day, 0, 0, 0) - timedelta(days=1)
         before = datetime(on_date.year, on_date.month, on_date.day, 23, 59, 59) + timedelta(days=1)
         activities = list(self._stravalib.get_activities(after=after, before=before))
         matching = [
             a for a in activities
-            if _sport_type_str(a) in _RUN_SPORT_TYPES
+            if _sport_type_str(a) in sport_types
             and a.start_date_local is not None
             and a.start_date_local.date() == on_date
         ]
-        return [a.id for a in reversed(matching) if a.id is not None]
+        return [
+            {"id": a.id, "distance": float(a.distance) if a.distance is not None else 0.0}
+            for a in reversed(matching)
+            if a.id is not None
+        ]
+
+    @staticmethod
+    def find_best_match(activities: list[dict], planned_distance_km: float | None) -> dict:
+        """Return activity closest to planned_distance_km. Falls back to first if no planned distance."""
+        if not activities:
+            raise ValueError("No activities found for planned session")
+        if len(activities) == 1 or planned_distance_km is None:
+            return activities[0]
+        planned_m = planned_distance_km * 1000
+        return min(activities, key=lambda a: abs(a["distance"] - planned_m))
 
     def get_activity(self, activity_id: int) -> dict:
         a = self._stravalib.get_activity(activity_id)
@@ -92,6 +106,7 @@ class StravaClient:
 
 
 _RUN_SPORT_TYPES = {"Run", "VirtualRun", "TrailRun"}
+_STRENGTH_SPORT_TYPES = {"WeightTraining"}
 
 
 def _sport_type_str(activity) -> str:
