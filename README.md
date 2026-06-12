@@ -178,6 +178,7 @@ pytest -m integration    # hits real Google Sheets API
 ## What's next
 
 - **Postgres persistence** — replace the JSON file cache with a proper activity history, enabling trend queries and cross-session analysis
+- **RAG layer for runner history** — embed past runs and analyses using pgvector; semantic retrieval surfaces sessions similar to the current one ("find comparable tempo runs from the last training block") and injects retrieved history into Claude's context. Enables analysis like "your HR in this tempo is 8 bpm higher than your last 3 comparable sessions" without sending the entire run history on every call
 - **WhatsApp inbound chatbot** — coach sends a WhatsApp message to query metrics or request a summary across any athlete
 - **Weekly digest + pre-run briefing** — scheduled agents that push a week-in-review each Sunday and a session preview the night before a key workout
 - **Prompt evals framework** — systematic evaluation of analysis quality against a labelled set of sessions, to catch regressions when the prompt or model changes
