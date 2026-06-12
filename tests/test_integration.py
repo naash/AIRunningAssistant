@@ -10,7 +10,6 @@ Run with:
   pytest -m integration
 """
 
-import os
 import pytest
 from datetime import date
 from pathlib import Path
@@ -42,11 +41,10 @@ def real_sheets_client(runner):
     from app.config import settings
     from app.sheets.client import SheetsClient
 
-    creds_path = settings.google_credentials_path
-    if not os.path.exists(creds_path):
-        pytest.skip(f"credentials file not found: {creds_path}")
+    if not settings.google_credentials_json:
+        pytest.skip("GOOGLE_CREDENTIALS_JSON not set")
 
-    return SheetsClient(creds_path, runner.spreadsheet_id)
+    return SheetsClient(settings.google_credentials_json, runner.spreadsheet_id)
 
 
 @pytest.fixture(scope="module")

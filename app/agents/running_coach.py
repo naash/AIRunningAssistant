@@ -4,8 +4,6 @@ import anthropic
 
 MODEL = "claude-sonnet-4-6"
 
-_RUNNER_MD = Path(__file__).parent.parent.parent / "runner.md"
-
 _BASE_SYSTEM_PROMPT = (
     "You are a running coach assistant. "
     "Provide a brief, factual, concise summary comparing the runner's actual "
@@ -13,21 +11,13 @@ _BASE_SYSTEM_PROMPT = (
     "and deviations from the plan. Use activities description for qualitative analysis"
 )
 
-
-def _build_system_prompt(runner_md: Path) -> str:
-    if not runner_md.exists():
-        return _BASE_SYSTEM_PROMPT
-    runner_context = runner_md.read_text(encoding="utf-8").strip()
-    return f"{_BASE_SYSTEM_PROMPT}\n\n{runner_context}"
-
-
 WORKOUT_TYPES = {0: "Default", 1: "Race", 2: "Long Run", 3: "Workout"}
 
 
 class RunningCoachAgent:
-    def __init__(self, client: anthropic.Anthropic, runner_md_path: Path | None = None):
+    def __init__(self, client: anthropic.Anthropic, runner_profile: str | None = None):
         self.client = client
-        self._runner_md_path = runner_md_path if runner_md_path is not None else _RUNNER_MD
+        self._runner_profile = runner_profile
 
     def analyze(
         self, activity: dict, planned_session: dict, weather: dict | None = None
@@ -36,10 +26,15 @@ class RunningCoachAgent:
         response = self.client.messages.create(
             model=MODEL,
             max_tokens=512,
-            system=_build_system_prompt(self._runner_md_path),
+            system=self._build_system_prompt(),
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
+
+    def _build_system_prompt(self) -> str:
+        if not self._runner_profile:
+            return _BASE_SYSTEM_PROMPT
+        return f"{_BASE_SYSTEM_PROMPT}\n\n{self._runner_profile}"
 
 
 def _pace_str(speed_mps: float) -> str:

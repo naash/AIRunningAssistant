@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -16,10 +17,6 @@ class RunnerConfig(BaseModel):
     def name(self) -> str:
         return self.display_name.lower()
 
-    @property
-    def profile_path(self) -> Path:
-        return _PROJECT_ROOT / "runners" / f"{self.name}.md"
-
 
 class RunnerRegistry:
     def __init__(self, runners: dict[str, RunnerConfig]):
@@ -29,11 +26,18 @@ class RunnerRegistry:
         }
 
     @classmethod
-    def load(cls, path: Path) -> "RunnerRegistry":
-        if not path.exists():
-            raise FileNotFoundError(f"Runner config not found: {path}")
+    def load(cls, path: Path | None = None) -> "RunnerRegistry":
+        raw_config = os.getenv("RUNNERS_CONFIG")
+        if raw_config:
+            raw = json.loads(raw_config)
+        else:
+            p = path or Path("runners.json")
+            if not p.exists():
+                raise FileNotFoundError(
+                    "runners.json not found and RUNNERS_CONFIG not set"
+                )
+            raw = json.loads(p.read_text(encoding="utf-8"))
 
-        raw = json.loads(path.read_text(encoding="utf-8"))
         runners: dict[str, RunnerConfig] = {}
         seen_names: set[str] = set()
 
@@ -43,10 +47,6 @@ class RunnerRegistry:
             if name in seen_names:
                 raise ValueError(f"Duplicate runner name: '{runner.display_name}'")
             seen_names.add(name)
-            if not runner.profile_path.exists():
-                raise FileNotFoundError(
-                    f"Profile not found for '{runner.display_name}': {runner.profile_path}"
-                )
             runners[name] = runner
 
         return cls(runners)
@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     strava_refresh_token: str
     strava_verify_token: str
 
-    google_credentials_path: str
+    google_credentials_json: str
 
     anthropic_api_key: str
 
@@ -79,9 +79,7 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: str
     whatsapp_coach_number: str
 
-    model_config = SettingsConfigDict(
-        env_file=str(_PROJECT_ROOT / ".env")
-    )
+    model_config = SettingsConfigDict(env_file=str(_PROJECT_ROOT / ".env"))
 
 
 settings = Settings()

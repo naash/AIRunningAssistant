@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import date, datetime
 from googleapiclient.discovery import build
@@ -7,9 +8,12 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 class SheetsClient:
-    def __init__(self, credentials_path: str, spreadsheet_id: str):
+    def __init__(self, credentials_json: str, spreadsheet_id: str):
         self._spreadsheet_id = spreadsheet_id
-        creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
+        creds = Credentials.from_service_account_info(
+            json.loads(credentials_json), 
+            scopes=SCOPES
+        )
         self._service = build("sheets", "v4", credentials=creds)
 
     def find_tab_for_date(self, runner_name: str, activity_date: date) -> str:

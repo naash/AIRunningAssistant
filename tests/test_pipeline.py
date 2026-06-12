@@ -104,7 +104,7 @@ class TestPipelineClients:
             await run_pipeline(SAMPLE_RUNNER, activity_id=ACTIVITY_ID)
 
             mock_cls.assert_called_once_with(
-                settings.google_credentials_path,
+                settings.google_credentials_json,
                 SAMPLE_RUNNER.spreadsheet_id,
             )
 

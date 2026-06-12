@@ -23,12 +23,12 @@ async def run_pipeline(
         settings.strava_refresh_token,
     )
     sheets = SheetsClient(
-        settings.google_credentials_path,
+        settings.google_credentials_json,
         runner.spreadsheet_id,
     )
     agent = RunningCoachAgent(
         anthropic.Anthropic(api_key=settings.anthropic_api_key),
-        runner_md_path=runner.profile_path,
+        runner_profile=None,
     )
     whatsapp = WhatsAppClient(
         settings.whatsapp_token,
@@ -44,8 +44,12 @@ async def run_pipeline(
         log.info("Matching activity for %s on %s", runner.display_name, on_date)
         tab_name = sheets.find_tab_for_date(runner.display_name, on_date)
         planned_session = sheets.get_row_for_date(tab_name, on_date)
-        activities = strava.get_activities_on_date(on_date, planned_session["session_type"])
-        matched = strava.find_best_match(activities, planned_session["planned_distance"])
+        activities = strava.get_activities_on_date(
+            on_date, planned_session["session_type"]
+        )
+        matched = strava.find_best_match(
+            activities, planned_session["planned_distance"]
+        )
         activity = strava.get_activity(matched["id"])
     else:
         raise ValueError("Either activity_id or on_date must be provided")
